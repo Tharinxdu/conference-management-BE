@@ -81,7 +81,7 @@ const AbstractSubmissionSchema = new mongoose.Schema(
         // Status
         status: {
             type: String,
-            enum: ["submitted", "updated", "approved", "rejected"],
+            enum: ["submitted", "under-review", "approved", "rejected"],
             default: "submitted",
             index: true,
         },

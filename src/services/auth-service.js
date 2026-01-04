@@ -83,8 +83,8 @@ async function register({ email, password, confirmPassword }) {
   if (password !== confirmPassword) {
     return { ok: false, status: 400, message: "password and confirmPassword do not match" };
   }
-  if (password.length < 6) {
-    return { ok: false, status: 400, message: "password must be at least 6 characters" };
+  if (password.length < 8) {
+    return { ok: false, status: 400, message: "password must be at least 8 characters" };
   }
 
   const existing = await User.findOne({ email: normalizedEmail });
@@ -94,18 +94,18 @@ async function register({ email, password, confirmPassword }) {
   const user = await User.create({ email: normalizedEmail, passwordHash });
 
   // issue tokens
-  const accessToken = signAccessToken(user);
-  const refreshToken = signRefreshToken(user);
+  // const accessToken = signAccessToken(user);
+  // const refreshToken = signRefreshToken(user);
 
   // store hashed refresh token in DB (so we can invalidate)
-  user.refreshTokenHash = hashToken(refreshToken);
+  // user.refreshTokenHash = hashToken(refreshToken);
   await user.save();
 
   return {
     ok: true,
     status: 201,
     data: { message: "registered", user: { id: user._id.toString(), email: user.email } },
-    tokens: { accessToken, refreshToken },
+    // tokens: { accessToken, refreshToken },
   };
 }
 

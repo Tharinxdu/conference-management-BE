@@ -8,7 +8,7 @@ async function registerController(req, res) {
   const result = await AuthService.register(req.body);
   if (!result.ok) return res.status(result.status).json({ message: result.message });
 
-  await AuthService.setAuthCookies(res, result.tokens);
+  // await AuthService.setAuthCookies(res, result.tokens);
   return res.status(result.status).json(result.data);
 }
 

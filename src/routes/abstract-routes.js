@@ -1,6 +1,6 @@
 const express = require("express");
 const { requireAuth } = require("../middlewares/auth-middleware");
-const { uploadAbstractFiles } = require("../middlewares/upload-abstract.middleware");
+const { uploadAbstractFiles,uploadAbstractFilesArray } = require("../middlewares/upload-abstract.middleware");
 
 const {
   createAbstractController,
@@ -9,12 +9,14 @@ const {
   updateMyAbstractController,
   addAttachmentsController,
   removeAttachmentController,
+  deleteMyAbstractController,
+  saveMyAbstractAllInOneController
 } = require("../controllers/abstract-controller");
 
 const router = express.Router();
 
 // Create (Declarations required) + optional files (multipart)
-router.post("/", requireAuth, uploadAbstractFiles.array("files", 5), createAbstractController);
+router.post("/", requireAuth, uploadAbstractFilesArray("files", 5), createAbstractController);
 
 // List my abstracts
 router.get("/", requireAuth, listMyAbstractsController);
@@ -24,6 +26,17 @@ router.get("/:id", requireAuth, getMyAbstractController);
 
 // Edit (Declarations NOT required)
 router.put("/:id", requireAuth, updateMyAbstractController);
+
+//Delete (my own)
+router.delete("/:id", requireAuth, deleteMyAbstractController);
+
+router.patch(
+  "/:id",
+  requireAuth,
+  uploadAbstractFilesArray("files", 5),
+  saveMyAbstractAllInOneController
+);
+
 
 // Add more files
 router.post("/:id/attachments", requireAuth, uploadAbstractFiles.array("files", 5), addAttachmentsController);

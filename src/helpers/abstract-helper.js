@@ -1,5 +1,7 @@
 const { HttpError } = require("../utils/http-error");
 
+const LOCKED_STATUSES = new Set(["under-review", "approved", "rejected"]);
+
 function wordCount(text = "") {
   return String(text).trim().split(/\s+/).filter(Boolean).length;
 }
@@ -121,6 +123,24 @@ function toAbstractDTO(doc, req, opts = {}) {
   return dto;
 }
 
+function assertUserCanModify(doc) {
+  const status = String(doc?.status || "").toLowerCase();
+  // allow only when still "submitted"
+  if (status && status !== "submitted" && LOCKED_STATUSES.has(status)) {
+    throw new HttpError(
+      409,
+      `This abstract is ${status} and can no longer be modified. You can only view it.`
+    );
+  }
+  // If status is missing/unexpected, be safe: block edits unless explicitly submitted
+  if (status !== "submitted") {
+    throw new HttpError(
+      409,
+      `This abstract is ${status || "not editable"} and can no longer be modified. You can only view it.`
+    );
+  }
+}
+
 module.exports = {
   wordCount,
   normalizeKeywords,
@@ -129,4 +149,5 @@ module.exports = {
   validateDeclarations,
   sanitizeUserAbstractUpdates,
   toAbstractDTO,
+  assertUserCanModify,
 };

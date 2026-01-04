@@ -14,6 +14,7 @@ const profileRoutes = require("./routes/profile-routes");
 const abstractRoutes = require("./routes/abstract-routes");
 const adminAbstractRoutes = require("./routes/admin-abstract-routes");
 const checkinRoutes = require("./routes/checkin-routes");
+const adminRoutes = require("./routes/admin-routes");
 
 
 const { HttpError } = require("./utils/http-error"); // adjust if your path is different
@@ -85,6 +86,7 @@ async function main() {
   app.use("/api/abstracts", abstractRoutes);
   app.use("/api/admin/abstracts", adminAbstractRoutes);
   app.use("/api/checkin", checkinRoutes);
+  app.use("/api/admin", adminRoutes);
 
 
   // 404
