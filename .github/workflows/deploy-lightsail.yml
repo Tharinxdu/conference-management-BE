@@ -1,0 +1,35 @@
+name: Deploy backend to Lightsail
+
+on:
+  push:
+    branches: [ "main" ]   # change if you deploy from another branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.LIGHTSAIL_HOST }}
+          username: ${{ secrets.LIGHTSAIL_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/ubuntu/conference-management-BE
+
+            echo "Pulling latest code..."
+            git fetch --all
+            git reset --hard origin/main
+
+            echo "Installing deps..."
+            npm ci --omit=dev
+
+            echo "Restarting PM2..."
+            pm2 restart conference-backend
+
+            echo "Saving PM2 process list..."
+            pm2 save
+
+            echo "Done."
