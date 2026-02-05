@@ -230,7 +230,7 @@ export const COUNTRY_INCOME_GROUPS = {
 
 export function getFeePeriod() {
   const today = new Date();
-  const earlyEnd = new Date("2026-08-31");
+  const earlyEnd = new Date("2026-09-30T23:59:59Z");
   return today <= earlyEnd ? "early" : "late";
 }
 
@@ -242,22 +242,21 @@ export function determineIncomeGroup(country, rawGroup) {
 export const FEE_RULES = {
   full: {
     LOWER: {
-      physician: { early: 75, late: 100 },
-      "non-physician": { early: 25, late: 40 }
+      physician: { early: 100, late: 150 },
+      'non-physician': { early: 50, late: 75 },
     },
     UPPER: {
-      physician: { early: 200, late: 225 },
-      "non-physician": { early: 75, late: 100 }
+      physician: { early: 250, late: 300 },
+      'non-physician': { early: 100, late: 150 },
     },
     LOCAL: {
-      physician: { early: 30, late: 80 },
-      "non-physician": { early: 20, late: 40 }
-    }
+      physician: { early: 30, late: 50 },
+      'non-physician': { early: 20, late: 30 },
+    },
   },
-
   rehab: {
-    ALL: { early: 15, late: 40 }
-  }
+    ALL: { early: 15, late: 40 },
+  },
 };
 
 export function calculateFee({ conferenceType, participantCategory, incomeGroup }) {

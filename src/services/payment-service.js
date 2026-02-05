@@ -10,17 +10,49 @@ const {
   finalizeRegistrationAfterPayment,
 } = require("./registration-confirmation-service.js");
 
+/**
+ * NOTE:
+ * - Payment.registrationId is treated as a Mongo ObjectId reference to Registration (_id).
+ *   (Consider renaming in schema later for clarity, but keeping as-is here.)
+ */
+
 function isFinal(status) {
   return status === "PAID" || status === "FAILED" || status === "CANCELED";
 }
 
-function makeReference(reg) {
-  const suffix = crypto.randomBytes(4).toString("hex").slice(0, 6).toUpperCase();
-  return `${reg.registrationId}-${suffix}`; // <= 21 chars required by OnePay reference constraint
+function safeAlnumDash(input) {
+  return String(input || "").replace(/[^A-Za-z0-9\-]/g, "");
 }
 
 /**
- * Initiate payment (idempotent):
+ * OnePay reference constraint: <= 21 chars (as per your note).
+ * We enforce it deterministically by trimming the base part.
+ */
+function makeReference(reg) {
+  const suffix = crypto.randomBytes(4).toString("hex").slice(0, 6).toUpperCase(); // 6 chars
+  const base = safeAlnumDash(reg.registrationId);
+
+  // Reserve space for "-" + suffix
+  const maxBaseLen = 21 - (1 + suffix.length);
+  const trimmedBase = base.slice(0, Math.max(0, maxBaseLen)) || "REG"; // fallback if empty
+  return `${trimmedBase}-${suffix}`;
+}
+
+function toMinorUnits(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100);
+}
+
+/**
+ * TODO (highly recommended before production):
+ * Validate OnePay callback authenticity (HMAC/signature) using headers + shared secret.
+ * This must be done in the controller/middleware where you have access to req headers.
+ * This service intentionally does NOT attempt signature validation because it only receives `body`.
+ */
+
+/**
+ * Initiate payment (idempotent-ish):
  * - reuse latest INITIATED/PENDING payment for that registration if exists
  * - if PENDING and redirectUrl exists -> return it (handles lost connection)
  */
@@ -103,7 +135,7 @@ async function initiateOnepayPayment(registrationMongoId) {
  * Verify payment with OnePay status API and sync DB.
  * Safe + idempotent.
  *
- * ✅ UPDATED: When PAID -> finalize registration (QR + email)
+ * ✅ When PAID -> finalize registration (QR + email)
  */
 async function verifyAndSync(payment) {
   if (!payment.onepayTransactionId) return payment;
@@ -115,15 +147,29 @@ async function verifyAndSync(payment) {
   const statusRes = await getTransactionStatus(payment.onepayTransactionId);
   const data = statusRes?.data || {};
 
+  /**
+   * IMPORTANT:
+   * The `paid` condition depends on OnePay's response schema.
+   * You previously used: data.status === true
+   * Keep that for now, but confirm with real response payload.
+   */
   const paid = data.status === true;
-  const amount = Number(data.amount);
+
+  const receivedAmountMinor = toMinorUnits(data.amount);
+  const expectedAmountMinor = toMinorUnits(payment.amount);
+
   const currency = data.currency;
 
   if (paid) {
-    // Safety checks
-    if (Number.isFinite(amount) && amount !== Number(payment.amount)) {
+    // Safety checks (use minor units to avoid float issues)
+    if (
+      receivedAmountMinor !== null &&
+      expectedAmountMinor !== null &&
+      receivedAmountMinor !== expectedAmountMinor
+    ) {
       throw new HttpError(409, "Payment amount mismatch. Manual review required.");
     }
+
     if (currency && currency !== payment.currency) {
       throw new HttpError(409, "Payment currency mismatch. Manual review required.");
     }
@@ -149,7 +195,6 @@ async function verifyAndSync(payment) {
       });
     } catch (e) {
       console.error("finalizeRegistrationAfterPayment failed:", e);
-      // optional: store for diagnostics
       payment.lastError = `Finalize failed: ${e?.message || "unknown"}`;
       await payment.save().catch(() => {});
     }
@@ -179,6 +224,9 @@ async function verifyAndSync(payment) {
  * OnePay callback handler:
  * - store callback
  * - verify with status endpoint
+ *
+ * SECURITY NOTE:
+ * You should validate callback signature (HMAC) in controller/middleware using req headers.
  */
 async function handleOnepayCallback(body) {
   const txId = body?.transaction_id;
