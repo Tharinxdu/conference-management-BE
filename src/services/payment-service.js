@@ -126,7 +126,7 @@ async function initiateOnepayPayment(registrationMongoId) {
   } catch (err) {
     payment.status = "FAILED";
     payment.lastError = err?.message || "Initiation failed";
-    await payment.save().catch(() => {});
+    await payment.save().catch(() => { });
     throw err instanceof HttpError ? err : new HttpError(500, "Failed to initiate payment.");
   }
 }
@@ -147,13 +147,16 @@ async function verifyAndSync(payment) {
   const statusRes = await getTransactionStatus(payment.onepayTransactionId);
   const data = statusRes?.data || {};
 
-  /**
-   * IMPORTANT:
-   * The `paid` condition depends on OnePay's response schema.
-   * You previously used: data.status === true
-   * Keep that for now, but confirm with real response payload.
-   */
-  const paid = data.status === true;
+  const s = data.status;
+  const msg = (data.status_message || data.message || "").toUpperCase();
+
+  const paid =
+    s === true ||
+    s === 1 ||
+    s === "1" ||
+    msg.includes("SUCCESS") ||
+    msg.includes("PAID");
+
 
   const receivedAmountMinor = toMinorUnits(data.amount);
   const expectedAmountMinor = toMinorUnits(payment.amount);
@@ -196,7 +199,7 @@ async function verifyAndSync(payment) {
     } catch (e) {
       console.error("finalizeRegistrationAfterPayment failed:", e);
       payment.lastError = `Finalize failed: ${e?.message || "unknown"}`;
-      await payment.save().catch(() => {});
+      await payment.save().catch(() => { });
     }
 
     return payment;
