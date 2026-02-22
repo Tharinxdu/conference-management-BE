@@ -127,7 +127,7 @@ async function getTransactionStatus(onepayTransactionId) {
     body: JSON.stringify({
       app_id: appId,
       // ✅ use the doc term
-      transaction_id: onepayTransactionId,
+      onepay_transaction_id: onepayTransactionId,
     }),
   });
 
