@@ -7,6 +7,7 @@ const {
 } = require("../services/payment-service.js");
 
 const { HttpError } = require("../utils/http-error.js");
+const Registration = require("../models/Registration.js");
 
 function sendError(res, err) {
   const status = err?.statusCode || 500;
@@ -15,6 +16,34 @@ function sendError(res, err) {
     ...(err?.details ? { details: err.details } : {}),
   });
 }
+
+function toSafeRegistration(reg) {
+  return {
+    registrationId: reg.registrationId,
+
+    // Personal (safe)
+    title: reg.title,
+    firstName: reg.firstName,
+    lastName: reg.lastName,
+    designation: reg.designation,
+    institution: reg.institution,
+    country: reg.country,
+
+    // Registration / pricing (safe)
+    incomeGroup: reg.incomeGroup,
+    participantCategory: reg.participantCategory,
+    conferenceType: reg.conferenceType,
+    feeAmount: reg.feeAmount,
+    feePeriod: reg.feePeriod,
+
+    // Contact (safe enough for the registrant UI)
+    email: reg.email,
+
+    // QR indicator (don’t expose internal ObjectId)
+    hasQr: Boolean(reg.qr),
+  };
+}
+
 
 async function initiateOnepayPaymentController(req, res) {
   try {
@@ -76,13 +105,42 @@ async function getPaymentStatusForRegistrationController(req, res) {
 
     const payment = await getPaymentStatusForRegistration(registrationMongoId);
 
-    return res.status(200).json({
+    // Base response: always safe to send
+    const response = {
       paymentStatus: payment.status,
-      onepayTransactionId: payment.onepayTransactionId,
+      // onepayTransactionId: payment.onepayTransactionId,
       redirectUrl: payment.redirectUrl,
       paidAt: payment.paidAt,
       lastError: payment.lastError,
-    });
+    };
+
+    // ✅ Only attach registration details when PAID
+    if (payment.status === "PAID") {
+      const reg = await Registration.findById(registrationMongoId).select(
+        [
+          "registrationId",
+          "title",
+          "firstName",
+          "lastName",
+          "designation",
+          "institution",
+          "country",
+          "incomeGroup",
+          "participantCategory",
+          "conferenceType",
+          "feeAmount",
+          "feePeriod",
+          "email",
+          "qr",
+        ].join(" ")
+      );
+
+      if (reg) {
+        response.registration = toSafeRegistration(reg);
+      }
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     return sendError(res, err);
   }

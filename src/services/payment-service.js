@@ -98,6 +98,9 @@ async function initiateOnepayPayment(registrationMongoId) {
     payment.lastError = null;
     await payment.save();
 
+    const baseRedirect = process.env.ONEPAY_TRANSACTION_REDIRECT_URL;
+    const transactionRedirectUrl = `${baseRedirect}?rid=${encodeURIComponent(String(reg._id))}`;
+
     const { onepayTransactionId, redirectUrl } = await createCheckoutLink({
       amount: payment.amount,
       currency: payment.currency,
@@ -108,7 +111,7 @@ async function initiateOnepayPayment(registrationMongoId) {
         phone: reg.mobile || "N/A",
         email: reg.email,
       },
-      transactionRedirectUrl: process.env.ONEPAY_TRANSACTION_REDIRECT_URL,
+      transactionRedirectUrl: transactionRedirectUrl,
       additionalData: reg.registrationId, // safe tag
     });
 
