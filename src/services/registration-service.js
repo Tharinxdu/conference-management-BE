@@ -45,7 +45,8 @@ async function createRegistration(payload) {
     const newReg = await Registration.create({
       registrationId,
       ...payload,
-      feeAmount: feeData.amount,
+      // feeAmount: feeData.amount,
+      feeAmount: 1, // --- IGNORE, for testing ---
       feePeriod: feeData.period,
       incomeGroup,
       paymentStatus: "UNPAID",
