@@ -16,9 +16,19 @@ const {
  *   (Consider renaming in schema later for clarity, but keeping as-is here.)
  */
 
-function isFinal(status) {
-  return status === "PAID" || status === "FAILED" || status === "CANCELED";
-}
+/**
+ * Your desired behavior:
+ * - Callback may be noisy (wrong card, retries) -> we only store it for audit
+ * - On redirect/status page, we verify with OnePay for up to 1 minute
+ * - If OnePay says PAID -> update DB and finalize (QR + email)
+ * - Else after 1 minute -> mark FAILED final
+ *
+ * Key changes vs your current code:
+ * 1) FAILED is NOT final during verification window; only PAID stops checks.
+ * 2) verifyAndSync() NEVER sets FAILED just because callback says failed.
+ * 3) getPaymentStatusForRegistration() performs bounded verification loop (<= 60s),
+ *    then sets FAILED if still not PAID.
+ */
 
 function safeAlnumDash(input) {
   return String(input || "").replace(/[^A-Za-z0-9\-]/g, "");
@@ -34,7 +44,7 @@ function makeReference(reg) {
 
   // Reserve space for "-" + suffix
   const maxBaseLen = 21 - (1 + suffix.length);
-  const trimmedBase = base.slice(0, Math.max(0, maxBaseLen)) || "REG"; // fallback if empty
+  const trimmedBase = base.slice(0, Math.max(0, maxBaseLen)) || "REG";
   return `${trimmedBase}-${suffix}`;
 }
 
@@ -44,12 +54,27 @@ function toMinorUnits(amount) {
   return Math.round(n * 100);
 }
 
-/**
- * TODO (highly recommended before production):
- * Validate OnePay callback authenticity (HMAC/signature) using headers + shared secret.
- * This must be done in the controller/middleware where you have access to req headers.
- * This service intentionally does NOT attempt signature validation because it only receives `body`.
- */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function markFailedFinal({ payment, registrationMongoId, reason }) {
+  // mark payment failed
+  payment.status = "FAILED";
+  payment.lastError = reason || payment.lastError || "Payment not completed.";
+  await payment.save().catch(() => {});
+
+  // mark registration failed
+  await Registration.findByIdAndUpdate(
+    registrationMongoId,
+    {
+      paymentStatus: "FAILED",
+      paymentProvider: "ONEPAY",
+      paymentReference: payment.onepayTransactionId || null,
+    },
+    { new: false }
+  ).catch(() => {});
+}
 
 /**
  * Initiate payment (idempotent-ish):
@@ -111,7 +136,7 @@ async function initiateOnepayPayment(registrationMongoId) {
         phone: reg.mobile || "N/A",
         email: reg.email,
       },
-      transactionRedirectUrl: transactionRedirectUrl,
+      transactionRedirectUrl,
       additionalData: reg.registrationId, // safe tag
     });
 
@@ -129,7 +154,7 @@ async function initiateOnepayPayment(registrationMongoId) {
   } catch (err) {
     payment.status = "FAILED";
     payment.lastError = err?.message || "Initiation failed";
-    await payment.save().catch(() => { });
+    await payment.save().catch(() => {});
     throw err instanceof HttpError ? err : new HttpError(500, "Failed to initiate payment.");
   }
 }
@@ -138,11 +163,14 @@ async function initiateOnepayPayment(registrationMongoId) {
  * Verify payment with OnePay status API and sync DB.
  * Safe + idempotent.
  *
- * ✅ When PAID -> finalize registration (QR + email)
+ * When PAID -> finalize registration (QR + email)
+ * Does NOT mark FAILED (callback failures are noisy). Only returns PAID or leaves as PENDING.
  */
 async function verifyAndSync(payment) {
   if (!payment.onepayTransactionId) return payment;
-  if (isFinal(payment.status)) return payment;
+
+  // Only PAID is truly final
+  if (payment.status === "PAID") return payment;
 
   const reg = await Registration.findById(payment.registrationId);
   if (!reg) throw new HttpError(404, "Registration not found for payment.");
@@ -160,10 +188,8 @@ async function verifyAndSync(payment) {
     msg.includes("SUCCESS") ||
     msg.includes("PAID");
 
-
   const receivedAmountMinor = toMinorUnits(data.amount);
   const expectedAmountMinor = toMinorUnits(payment.amount);
-
   const currency = data.currency;
 
   if (paid) {
@@ -183,6 +209,7 @@ async function verifyAndSync(payment) {
     // Mark payment as paid
     payment.status = "PAID";
     payment.paidAt = data.paid_on ? new Date(data.paid_on) : new Date();
+    payment.lastError = null;
     await payment.save();
 
     // Mark registration as paid
@@ -191,8 +218,7 @@ async function verifyAndSync(payment) {
     reg.paymentReference = payment.onepayTransactionId;
     await reg.save();
 
-    // ✅ FINALIZE: issue/reuse QR + send email ONCE (idempotent)
-    // IMPORTANT: do NOT fail the whole callback/poll if email fails
+    // FINALIZE: issue/reuse QR + send email ONCE (idempotent)
     try {
       await finalizeRegistrationAfterPayment({
         registrationMongoId: reg._id,
@@ -202,25 +228,22 @@ async function verifyAndSync(payment) {
     } catch (e) {
       console.error("finalizeRegistrationAfterPayment failed:", e);
       payment.lastError = `Finalize failed: ${e?.message || "unknown"}`;
-      await payment.save().catch(() => { });
+      await payment.save().catch(() => {});
     }
 
     return payment;
   }
 
-  // Not paid: keep pending unless callback hinted failure
-  if (payment.lastCallback && payment.lastCallback.status !== undefined) {
-    const cbStatus = Number(payment.lastCallback.status);
-    if (cbStatus !== 1) {
-      payment.status = "FAILED";
-      payment.lastError = payment.lastCallback.status_message || "Payment not completed.";
-      await payment.save();
-
-      reg.paymentStatus = "FAILED";
-      reg.paymentProvider = "ONEPAY";
-      reg.paymentReference = payment.onepayTransactionId;
-      await reg.save();
-    }
+  // Not paid: keep PENDING (do not mark FAILED here)
+  if (payment.status !== "PENDING") {
+    payment.status = "PENDING";
+    await payment.save().catch(() => {});
+  }
+  if (reg.paymentStatus !== "PENDING") {
+    reg.paymentStatus = "PENDING";
+    reg.paymentProvider = "ONEPAY";
+    reg.paymentReference = payment.onepayTransactionId;
+    await reg.save().catch(() => {});
   }
 
   return payment;
@@ -228,11 +251,11 @@ async function verifyAndSync(payment) {
 
 /**
  * OnePay callback handler:
- * - store callback
- * - verify with status endpoint
+ * - store callback (audit)
+ * - do a single verify attempt (best effort)
  *
- * SECURITY NOTE:
- * You should validate callback signature (HMAC) in controller/middleware using req headers.
+ * NOTE: callback can be noisy (wrong card then retry).
+ * We do NOT mark FAILED from callback.
  */
 async function handleOnepayCallback(body) {
   const txId = body?.transaction_id;
@@ -241,7 +264,8 @@ async function handleOnepayCallback(body) {
   const payment = await Payment.findOne({ onepayTransactionId: txId });
   if (!payment) throw new HttpError(404, "Payment not found for transaction_id.");
 
-  if (isFinal(payment.status)) {
+  // If already paid, nothing more to do
+  if (payment.status === "PAID") {
     return { ok: true, alreadyProcessed: true, status: payment.status };
   }
 
@@ -253,13 +277,19 @@ async function handleOnepayCallback(body) {
   };
   await payment.save();
 
+  // Best-effort verify once (do not throw gateway errors back as final truth)
   const synced = await verifyAndSync(payment);
   return { ok: true, status: synced.status };
 }
 
 /**
- * Frontend polling endpoint:
- * - fetch latest payment and verify if still pending
+ * Status endpoint logic (your requested behavior):
+ * - If DB already says PAID -> return immediately
+ * - Else verify with OnePay up to 1 minute:
+ *    - If PAID -> update DB and return
+ *    - Else after 1 minute -> mark FAILED final and return
+ *
+ * IMPORTANT: This runs when user is redirected to status page.
  */
 async function getPaymentStatusForRegistration(registrationMongoId) {
   if (!mongoose.Types.ObjectId.isValid(registrationMongoId)) {
@@ -273,13 +303,53 @@ async function getPaymentStatusForRegistration(registrationMongoId) {
 
   if (!payment) throw new HttpError(404, "No payment found for this registration.");
 
-  if (payment.status === "PENDING") {
-    await verifyAndSync(payment);
-    const fresh = await Payment.findById(payment._id);
-    return fresh;
+  // If already PAID, return immediately
+  if (payment.status === "PAID") return payment;
+
+  // If we don't have a transaction id, we can't verify -> finalize failed
+  if (!payment.onepayTransactionId) {
+    await markFailedFinal({
+      payment,
+      registrationMongoId,
+      reason: "Missing OnePay transaction id.",
+    });
+    return await Payment.findById(payment._id);
   }
 
-  return payment;
+  const maxMs = 60 * 1000;
+  const intervalMs = 5000; // 12 checks in 60s
+  const checks = Math.max(1, Math.ceil(maxMs / intervalMs));
+
+  let lastErr = null;
+
+  for (let i = 0; i < checks; i++) {
+    try {
+      const updated = await verifyAndSync(payment);
+
+      if (updated.status === "PAID") {
+        const fresh = await Payment.findById(payment._id);
+        return fresh || updated;
+      }
+    } catch (e) {
+      // transient OnePay failures -> keep trying within the 1-minute window
+      lastErr = e?.message || String(e);
+      payment.lastError = lastErr;
+      await payment.save().catch(() => {});
+    }
+
+    if (i < checks - 1) {
+      await sleep(intervalMs);
+    }
+  }
+
+  // After 1 minute without PAID -> finalize FAILED
+  await markFailedFinal({
+    payment,
+    registrationMongoId,
+    reason: lastErr || "Payment not completed within 1 minute.",
+  });
+
+  return await Payment.findById(payment._id);
 }
 
 module.exports = {
