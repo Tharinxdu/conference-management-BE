@@ -8,7 +8,7 @@ const { HttpError } = require("../http-error"); // adjust if your path differs
  *   attachments: [{ filename, content, contentType }]
  * })
  */
-async function sendEmail({ to, subject, html, text, attachments = [], replyTo } = {}) {
+async function sendEmail({ to, subject, html, text, attachments = [], replyTo, bcc } = {}) {
   try {
     if (!to) throw new HttpError(400, "Missing email recipient (to).");
     if (!subject) throw new HttpError(400, "Missing email subject.");
@@ -16,9 +16,13 @@ async function sendEmail({ to, subject, html, text, attachments = [], replyTo } 
 
     const transporter = getTransporter();
 
+    const bccList =
+      !bcc ? undefined : Array.isArray(bcc) ? bcc.filter(Boolean) : [bcc].filter(Boolean);
+
     const info = await transporter.sendMail({
       from: `"${emailConfig.from.name}" <${emailConfig.from.address}>`,
       to,
+      ...(bccList?.length ? { bcc: bccList } : {}), 
       subject,
       html,
       text,
@@ -32,7 +36,6 @@ async function sendEmail({ to, subject, html, text, attachments = [], replyTo } 
       rejected: info.rejected,
     };
   } catch (err) {
-    // Do not log secrets. Keep logs short.
     console.error("sendEmail failed:", err?.message || err);
     throw err instanceof HttpError ? err : new HttpError(502, "Failed to send email.");
   }

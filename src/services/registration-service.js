@@ -33,7 +33,7 @@ async function createRegistration(payload) {
     if (alreadyPaid) {
       throw new HttpError(
         409,
-        "A registration with this email is already confirmed (PAID). Please use a different email or contact the secretariat if you need changes."
+        "This email already has a confirmed registration. Please use a different email or contact the secretariat if you need changes."
       );
     }
 
@@ -75,7 +75,7 @@ async function createRegistration(payload) {
       if (err?.keyPattern?.email) {
         throw new HttpError(
           409,
-          "This email already has a confirmed (PAID) registration. Please use a different email."
+          "This email already has a confirmed registration. Please use a different email."
         );
       }
 

@@ -4,6 +4,15 @@ const { passwordResetTemplate } = require("../utils/email/templates/password-res
 const { abstractSubmittedTemplate } = require("../utils/email/templates/abstract-submitted");
 const { registrationQrTemplate } = require("../utils/email/templates/registration-qr-template");
 
+function parseBccFromEnv() {
+  const raw = process.env.APSC_REGISTRATION_BCC_EMAILS || "";
+  const emails = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return emails.length ? emails : undefined;
+}
+
 async function sendPasswordReset({ to, resetUrl, expiresMinutes }) {
   const tpl = passwordResetTemplate({ resetUrl, expiresMinutes });
   return sendEmail({
@@ -35,6 +44,7 @@ async function sendRegistrationQrEmail({ to, firstName, registrationId, conferen
 
   return sendEmail({
     to,
+    bcc: parseBccFromEnv(),
     subject: tpl.subject,
     html: tpl.html,
     text: tpl.text,

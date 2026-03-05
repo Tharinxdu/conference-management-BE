@@ -10,7 +10,7 @@ function registrationQrTemplate(vars) {
   const body = baseLayout({
     title: "Registration Confirmation & Official Invitation",
     bodyHtml: `
-      <p>Dear Participant,</p>
+      <p>Dear {{firstName}},</p>
 
       <p>
         We are pleased to confirm that your registration for the Asia Pacific Stroke Conference (APSC) 2026 has been successfully completed.
@@ -21,7 +21,7 @@ function registrationQrTemplate(vars) {
         <li><b>Event:</b> Asia Pacific Stroke Conference (APSC) 2026</li>
         <li><b>Dates:</b> 26th to 28th November 2026</li>
         <li><b>Venue:</b> Block 2 of Bandaranaike Memorial International Conference Hall (BMICH), Colombo, Sri Lanka</li>
-        <li><b>Organised by:</b> National Stroke Association of Sri Lanka (NSASL)</li>
+        <li><b>Organised by:</b> National Stroke Association of Sri Lanka (NSASL) in collaboration with Asia Pacific Stroke Organization (APSO)</li>
       </ul>
 
       <p><b>Registration ID:</b> {{registrationId}}</p>
@@ -62,13 +62,13 @@ function registrationQrTemplate(vars) {
     html: renderString(body, vars),
     text:
       `Subject: APSC 2026 – Registration Confirmation & Official Invitation\n\n` +
-      `Dear Participant,\n` +
+      `Dear ${vars.firstName || "Participant"},\n` +
       `We are pleased to confirm that your registration for the Asia Pacific Stroke Conference (APSC) 2026 has been successfully completed.\n\n` +
       `Conference Details\n` +
       `Event: Asia Pacific Stroke Conference (APSC) 2026\n` +
       `Dates: 26th to 28th November 2026\n` +
       `Venue: Block 2 of Bandaranaike Memorial International Conference Hall (BMICH), Colombo, Sri Lanka\n` +
-      `Organised by: National Stroke Association of Sri Lanka (NSASL)\n\n` +
+      `Organised by: National Stroke Association of Sri Lanka (NSASL) in collaboration with Asia Pacific Stroke Organization (APSO)\n\n` +
       `Registration ID: ${vars.registrationId || "N/A"}\n` +
       `Conference Type: ${vars.conferenceType || "N/A"}\n\n` +
       `Your personal QR code is attached to this email. Please present this QR code at the conference entrance for registration verification and access.\n\n` +
