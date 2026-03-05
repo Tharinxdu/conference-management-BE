@@ -23,6 +23,20 @@ async function createRegistration(payload) {
     // Minimal required fields for fee calculation + communication
     requireFields(payload, ["country", "conferenceType", "participantCategory", "email"]);
 
+    const email = String(payload.email || "").trim().toLowerCase();
+
+    const alreadyPaid = await Registration.exists({
+      email,
+      paymentStatus: "PAID",
+    });
+
+    if (alreadyPaid) {
+      throw new HttpError(
+        409,
+        "A registration with this email is already confirmed (PAID). Please use a different email or contact the secretariat if you need changes."
+      );
+    }
+
     const rawIncome = COUNTRY_INCOME_GROUPS[payload.country] || null;
     const incomeGroup = determineIncomeGroup(payload.country, rawIncome);
 
@@ -45,6 +59,7 @@ async function createRegistration(payload) {
     const newReg = await Registration.create({
       registrationId,
       ...payload,
+      email,
       // feeAmount: feeData.amount,
       feeAmount: 1, // --- IGNORE, for testing ---
       feePeriod: feeData.period,
@@ -56,6 +71,15 @@ async function createRegistration(payload) {
     return newReg;
   } catch (err) {
     if (err?.code === 11000) {
+      // If the unique constraint was triggered by the PAID-email index
+      if (err?.keyPattern?.email) {
+        throw new HttpError(
+          409,
+          "This email already has a confirmed (PAID) registration. Please use a different email."
+        );
+      }
+
+      // fallback for other unique indexes (registrationId, etc.)
       throw new HttpError(409, "Duplicate registration detected.", err?.keyValue);
     }
 

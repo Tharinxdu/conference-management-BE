@@ -21,7 +21,7 @@ const RegistrationSchema = new mongoose.Schema(
     feeBreakdown: Object,
 
     // Contact
-    email: String,
+    email: { type: String, required: true, trim: true, lowercase: true },
     mobile: String,
 
     // Consent
@@ -41,6 +41,11 @@ const RegistrationSchema = new mongoose.Schema(
 
   },
   { timestamps: true }
+);
+
+RegistrationSchema.index(
+  { email: 1 },
+  { unique: true, partialFilterExpression: { paymentStatus: "PAID" } }
 );
 
 module.exports = mongoose.model("Registration", RegistrationSchema);
