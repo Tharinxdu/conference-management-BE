@@ -33,7 +33,7 @@ async function createRegistration(payload) {
     if (alreadyPaid) {
       throw new HttpError(
         409,
-        "This email already has a confirmed registration. Please use a different email or contact the secretariat if you need changes."
+        "This email is already registered."
       );
     }
 
@@ -60,8 +60,7 @@ async function createRegistration(payload) {
       registrationId,
       ...payload,
       email,
-      // feeAmount: feeData.amount,
-      feeAmount: 1, // --- IGNORE, for testing ---
+      feeAmount: feeData.amount,
       feePeriod: feeData.period,
       incomeGroup,
       paymentStatus: "UNPAID",
@@ -75,7 +74,7 @@ async function createRegistration(payload) {
       if (err?.keyPattern?.email) {
         throw new HttpError(
           409,
-          "This email already has a confirmed registration. Please use a different email."
+          "This email is already registered."
         );
       }
 
