@@ -59,6 +59,7 @@ async function finalizeRegistrationAfterPayment({
   if (!freshQr.emailSentAt) {
     await EmailService.sendRegistrationQrEmail({
       to: reg.email,
+      title: reg.title || "",
       firstName: reg.firstName || "",
       registrationId: reg.registrationId,
       conferenceType: reg.conferenceType || "",

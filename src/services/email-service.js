@@ -39,8 +39,8 @@ async function sendAbstractSubmitted({ to, firstName, abstractId, abstractTitle,
   });
 }
 
-async function sendRegistrationQrEmail({ to, firstName, registrationId, conferenceType, qrPngBuffer }) {
-  const tpl = registrationQrTemplate({ firstName, registrationId, conferenceType });
+async function sendRegistrationQrEmail({ to, title, firstName, registrationId, conferenceType, qrPngBuffer }) {
+  const tpl = registrationQrTemplate({ title, firstName, registrationId, conferenceType });
 
   return sendEmail({
     to,

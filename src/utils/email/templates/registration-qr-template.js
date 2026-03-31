@@ -10,7 +10,7 @@ function registrationQrTemplate(vars) {
   const body = baseLayout({
     title: "Registration Confirmation & Official Invitation",
     bodyHtml: `
-      <p>Dear {{firstName}},</p>
+      <p>Dear {{title}} {{firstName}},</p>
 
       <p>
         We are pleased to confirm that your registration for the Asia Pacific Stroke Conference (APSC) 2026 has been successfully completed.
@@ -62,7 +62,7 @@ function registrationQrTemplate(vars) {
     html: renderString(body, vars),
     text:
       `Subject: APSC 2026 – Registration Confirmation & Official Invitation\n\n` +
-      `Dear ${vars.firstName || "Participant"},\n` +
+      `Dear  ${vars.title || ""} ${vars.firstName || "Participant"},\n` +
       `We are pleased to confirm that your registration for the Asia Pacific Stroke Conference (APSC) 2026 has been successfully completed.\n\n` +
       `Conference Details\n` +
       `Event: Asia Pacific Stroke Conference (APSC) 2026\n` +
