@@ -1,8 +1,25 @@
 const { baseLayout } = require("./base-layout");
 const { renderString } = require("../render");
 
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function galaDinnerTemplate(vars) {
   const subject = renderString("APSC 2026 – Gala Dinner Coupons ({{orderId}})", vars);
+
+  // Ensure we have a safe array
+  const ticketIds = Array.isArray(vars.ticketIds) ? vars.ticketIds : [];
+
+  // ✅ Build REAL HTML list items (escaped)
+  const ticketIdLis = ticketIds
+    .map((id) => `<li><b>${escapeHtml(id)}</b></li>`)
+    .join("");
 
   const body = baseLayout({
     title: "Gala Dinner Coupons",
@@ -24,12 +41,13 @@ function galaDinnerTemplate(vars) {
       <p style="margin: 0 0 10px;">
         If a QR code cannot be scanned, the registration desk can verify using the Ticket ID(s) below:
       </p>
+
       <ul style="margin: 0 0 14px; padding-left: 18px;">
-        {{ticketIdListHtml}}
+        ${ticketIdLis || `<li><em>No ticket IDs available</em></li>`}
       </ul>
 
       <p>Thank you</p>
-    `.replace(/\{\{.*?\}\}/g, (m) => m),
+    `,
     footerText: "APSC 2026 Secretariat • National Stroke Association of Sri Lanka (NSASL)",
   });
 
@@ -41,7 +59,7 @@ function galaDinnerTemplate(vars) {
       `You have been successfully registered to receive ${vars.ticketCount} coupon(s) for the Gala Dinner, which will be held at the Sapphire Banquet Hall at BMICH (the venue for APSC 2026) following the Welcome Ceremony on 26th November 2026.\n\n` +
       `Please present the QR code(s) attached at the registration desk at the conference venue to obtain your Gala Dinner coupons.\n\n` +
       `Ticket IDs:\n` +
-      `${(vars.ticketIds || []).map((id) => `- ${id}`).join("\n")}\n\n` +
+      `${ticketIds.map((id) => `- ${id}`).join("\n")}\n\n` +
       `Thank you\n`,
   };
 }

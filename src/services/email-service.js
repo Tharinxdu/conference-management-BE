@@ -67,8 +67,13 @@ function parseGalaBccFromEnv() {
 }
 
 async function sendGalaDinnerTicketsEmail({ to, orderId, ticketCount, ticketIds, attachments }) {
-  const ticketIdListHtml = (ticketIds || []).map((id) => `<li><b>${id}</b></li>`).join("");
-  const tpl = galaDinnerTemplate({ orderId, ticketCount, ticketIds, ticketIdListHtml });
+  const ids = Array.isArray(ticketIds) ? ticketIds : [];
+
+  const tpl = galaDinnerTemplate({
+    orderId,
+    ticketCount,
+    ticketIds: ids,
+  });
 
   return sendEmail({
     to,
@@ -76,7 +81,7 @@ async function sendGalaDinnerTicketsEmail({ to, orderId, ticketCount, ticketIds,
     subject: tpl.subject,
     html: tpl.html,
     text: tpl.text,
-    attachments, // array of png files
+    attachments: Array.isArray(attachments) ? attachments : [],
   });
 }
 
