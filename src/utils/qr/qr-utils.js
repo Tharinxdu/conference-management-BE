@@ -48,7 +48,10 @@ function createQrJwtToken({ registrationMongoId, registrationId, conferenceType,
 
 function verifyQrJwtToken(token) {
   const secret = mustEnv("QR_SIGNING_SECRET");
-  return jwt.verify(token, secret, { algorithms: ["HS256"] });
+  return jwt.verify(token, secret, {
+    algorithms: ["HS256"],
+    ignoreExpiration: true, 
+  });
 }
 
 module.exports = {

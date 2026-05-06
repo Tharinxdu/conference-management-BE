@@ -10,7 +10,7 @@ const {
 } = require("../utils/qr/qr-utils");
 
 function getExpiryDate() {
-  const days = Number(process.env.QR_TOKEN_EXPIRES_IN_DAYS || 30);
+  const days = Number(process.env.QR_TOKEN_EXPIRES_IN_DAYS || 365);
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
