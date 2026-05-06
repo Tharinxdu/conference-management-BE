@@ -11,6 +11,8 @@ const userSchema = new mongoose.Schema(
     // role
     isAdmin: { type: Boolean, default: false },
 
+    isStaff: { type: Boolean, default: false },
+
     // password reset (store only HASH, not the raw token)
     passwordResetTokenHash: { type: String, default: null },
     passwordResetExpiresAt: { type: Date, default: null },

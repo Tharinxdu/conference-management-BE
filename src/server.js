@@ -15,6 +15,9 @@ const abstractRoutes = require("./routes/abstract-routes");
 const adminAbstractRoutes = require("./routes/admin-abstract-routes");
 const checkinRoutes = require("./routes/checkin-routes");
 const adminRoutes = require("./routes/admin-routes");
+const galaRoutes = require("./routes/gala-routes")
+const galaRedeemRoutes = require("./routes/gala-redeem-routes");
+const staffDashboardRoutes = require("./routes/staff-dashboard-routes");
 
 
 const { HttpError } = require("./utils/http-error"); // adjust if your path is different
@@ -87,6 +90,9 @@ async function main() {
   app.use("/api/admin/abstracts", adminAbstractRoutes);
   app.use("/api/checkin", checkinRoutes);
   app.use("/api/admin", adminRoutes);
+  app.use("/api/gala", galaRoutes);
+  app.use("/api/gala/redeem", galaRedeemRoutes);
+  app.use("/api/staff/dashboard", staffDashboardRoutes);
 
 
   // 404
