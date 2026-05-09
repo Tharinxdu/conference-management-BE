@@ -15,8 +15,7 @@ async function createGalaOrder(payload) {
     throw new HttpError(400, "Please enter a valid email address.");
   }
 
-  // const totalAmount = UNIT_PRICE_USD * ticketCount;
-  const totalAmount = 1; 
+  const totalAmount = UNIT_PRICE_USD * ticketCount;
 
   const order = await GalaOrder.create({
     orderId: generateCode("GALA", 8),
