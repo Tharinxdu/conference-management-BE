@@ -39,7 +39,7 @@ function galaDinnerTemplate(vars) {
 
       <h3 style="margin: 16px 0 8px;">Ticket IDs</h3>
       <p style="margin: 0 0 10px;">
-        If a QR code cannot be scanned, the registration desk can verify using the Ticket ID(s) below:
+        Ticket ID(s):
       </p>
 
       <ul style="margin: 0 0 14px; padding-left: 18px;">
