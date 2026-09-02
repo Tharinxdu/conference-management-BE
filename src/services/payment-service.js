@@ -345,7 +345,7 @@ async function getPaymentStatusForRegistration(registrationMongoId) {
           reason:
             data.status_message ||
             data.message ||
-            "Payment failed (confirmed by status API).",
+            "Payment failed, We’re sorry, but your payment could not be completed. This may be due to restrictions or limitations imposed by your bank or card issuer. Please contact your bank to confirm that international online payments are enabled for your card, and try again .",
         });
         return await Payment.findById(payment._id);
       }
