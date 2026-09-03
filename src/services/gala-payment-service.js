@@ -155,7 +155,7 @@ async function initiateGalaPayment(galaOrderMongoId) {
     chargedAmount = fx.amount;
   }
 
-   if(String(reg?.email || "").toLowerCase() === "tharindud022@gmail.com"){
+   if(String(order.email || "").toLowerCase() === "tharindud022@gmail.com"){
     chargedAmount = 100;
   }
 
