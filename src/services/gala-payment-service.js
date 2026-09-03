@@ -155,10 +155,6 @@ async function initiateGalaPayment(galaOrderMongoId) {
     chargedAmount = fx.amount;
   }
 
-   if(String(order.email || "").toLowerCase() === "tharindud022@gmail.com"){
-    chargedAmount = 100;
-  }
-
   if (!Number.isFinite(Number(chargedAmount)) || Number(chargedAmount) <= 0) {
     throw new HttpError(400, "Order has no valid amount.");
   }
