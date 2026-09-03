@@ -218,10 +218,6 @@ async function initiateOnepayPayment(registrationMongoId) {
     amount = fx.amount;
   }
 
-  if(String(reg?.email || "").toLowerCase() === "tharindud022@gmail.com"){
-    amount = 100;
-  }
-
   if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
     throw new HttpError(400, "Registration has no valid fee amount.");
   }
