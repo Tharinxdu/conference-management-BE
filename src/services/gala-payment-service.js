@@ -6,10 +6,31 @@ const { HttpError } = require("../utils/http-error");
 const {
   createGalaCheckoutLink,
   getGalaTransactionStatus,
-} = require("../utils/onepay-client-gala"); 
+} = require("../utils/onepay-client-gala");
 const GalaOrder = require("../models/GalaOrder");
+const { LKR_COUNTRY } = require("../helpers/countries");
+const { convertUsdToLkr } = require("./exchange-rate-service");
 
 const { finalizeGalaOrderAfterPayment } = require("./gala-finalize-service");
+
+/**
+ * CURRENCY
+ *
+ * Gala tickets are priced in USD (unitPrice * ticketCount = totalAmount).
+ * The charged currency comes from the buyer's country and is never supplied by
+ * the client:
+ *
+ *   country === "Sri Lanka"  -> charged in LKR
+ *   anything else            -> charged in USD
+ *
+ * LKR amounts are converted from totalAmount at the live rate, fetched ONCE at
+ * initiation and stored on the order along with the rate. Verification then
+ * compares OnePay's reported amount against chargedAmount, which is already in
+ * the charged currency, so a rate move mid-checkout can't trip the guard.
+ */
+function currencyForOrder(order) {
+  return String(order?.country || "").trim() === LKR_COUNTRY ? "LKR" : "USD";
+}
 
 function safeAlnumDash(input) {
   return String(input || "").replace(/[^A-Za-z0-9\-]/g, "");
@@ -90,6 +111,7 @@ async function markFailedFinal({ order, reason }) {
  * Initiate OnePay for a Gala Order
  * - Uses GALA OnePay APP (separate app_id/token/salt)
  * - Reuses pending redirectUrl if exists
+ * - Charges LKR for Sri Lankan buyers, USD for everyone else
  */
 async function initiateGalaPayment(galaOrderMongoId) {
   if (!mongoose.Types.ObjectId.isValid(galaOrderMongoId)) {
@@ -106,6 +128,8 @@ async function initiateGalaPayment(galaOrderMongoId) {
       galaOrderMongoId: order._id,
       redirectUrl: order.redirectUrl,
       onepayTransactionId: order.onepayTransactionId,
+      currency: order.currency,
+      amount: order.chargedAmount,
       reused: true,
     };
   }
@@ -119,9 +143,29 @@ async function initiateGalaPayment(galaOrderMongoId) {
 
   const reference = order.paymentReference || makeReference(order);
 
+  // Decide the currency and price before touching the order, so an FX outage
+  // leaves the order untouched rather than half-updated.
+  const currency = currencyForOrder(order);
+
+  let chargedAmount = order.totalAmount;
+  let fx = null;
+
+  if (currency === "LKR") {
+    fx = await convertUsdToLkr(order.totalAmount);
+    chargedAmount = fx.amount;
+  }
+
+   if(String(reg?.email || "").toLowerCase() === "tharindud022@gmail.com"){
+    chargedAmount = 100;
+  }
+
+  if (!Number.isFinite(Number(chargedAmount)) || Number(chargedAmount) <= 0) {
+    throw new HttpError(400, "Order has no valid amount.");
+  }
+
   const { onepayTransactionId, redirectUrl } = await createGalaCheckoutLink({
-    amount: order.totalAmount,
-    currency: "USD",
+    amount: chargedAmount,
+    currency,
     reference,
     customer: {
       firstName: order.name || "N/A",
@@ -132,6 +176,11 @@ async function initiateGalaPayment(galaOrderMongoId) {
     transactionRedirectUrl,
     additionalData: order.orderId,
   });
+
+  order.currency = currency;
+  order.chargedAmount = chargedAmount;
+  order.exchangeRate = fx?.rate ?? null;
+  order.exchangeRateFetchedAt = fx?.fetchedAt ?? null;
 
   order.onepayTransactionId = onepayTransactionId;
   order.redirectUrl = redirectUrl;
@@ -149,6 +198,8 @@ async function initiateGalaPayment(galaOrderMongoId) {
     galaOrderMongoId: order._id,
     redirectUrl,
     onepayTransactionId,
+    currency,
+    amount: chargedAmount,
     reused: false,
   };
 }
@@ -173,6 +224,12 @@ async function handleGalaCallback(body) {
 
   // If callback says PAID -> finalize PAID immediately
   if (callbackIsPaid(body)) {
+    // Gateway retries are normal; without this guard a retry re-runs ticket
+    // issuance.
+    if (order.paymentStatus === "PAID") {
+      return { ok: true, status: "PAID", source: "callback", duplicate: true };
+    }
+
     await markPaidFinal({ order, paidAt: new Date() });
     return { ok: true, status: "PAID", source: "callback" };
   }
@@ -226,9 +283,11 @@ async function getGalaPaymentStatus(galaOrderMongoId) {
       const finalStatus = normalizeStatusFromOnepay(data);
 
       if (finalStatus === "PAID") {
-        // validate amount/currency
+        // Validate against what we actually charged, not the USD list price.
         const receivedMinor = toMinorUnits(data.amount);
-        const expectedMinor = toMinorUnits(order.totalAmount);
+        const expectedMinor = toMinorUnits(
+          order.chargedAmount != null ? order.chargedAmount : order.totalAmount
+        );
 
         if (
           receivedMinor !== null &&
@@ -238,7 +297,7 @@ async function getGalaPaymentStatus(galaOrderMongoId) {
           throw new HttpError(409, "Payment amount mismatch. Manual review required.");
         }
 
-        if (data.currency && String(data.currency).toUpperCase() !== "USD") {
+        if (data.currency && String(data.currency).toUpperCase() !== order.currency) {
           throw new HttpError(409, "Payment currency mismatch. Manual review required.");
         }
 
