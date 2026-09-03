@@ -32,8 +32,20 @@ const PaymentSchema = new mongoose.Schema(
       index: true,
     },
 
-    currency: { type: String, required: true, default: "USD" },
+    // What the registrant is actually charged.
+    currency: {
+      type: String,
+      enum: ["USD", "LKR"],
+      required: true,
+      default: "USD",
+    },
     amount: { type: Number, required: true },
+
+    // The USD fee and the rate used, snapshotted at initiation. Needed to
+    // reconcile an LKR settlement back to the USD fee it came from.
+    baseAmount: { type: Number, default: null },
+    exchangeRate: { type: Number, default: null },
+    exchangeRateFetchedAt: { type: Date, default: null },
 
     redirectUrl: { type: String, default: null },
 

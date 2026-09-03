@@ -6,6 +6,8 @@ const {
   getPaymentStatusForRegistration,
 } = require("../services/payment-service.js");
 
+const { getUsdToLkrRate } = require("../services/exchange-rate-service.js");
+
 const { HttpError } = require("../utils/http-error.js");
 const Registration = require("../models/Registration.js");
 
@@ -44,6 +46,19 @@ function toSafeRegistration(reg) {
   };
 }
 
+/**
+ * Public: indicative USD -> LKR rate, so the registration form can show local
+ * registrants their rupee figure before submitting. The server re-fetches and
+ * locks the rate at initiation, so this is display only.
+ */
+async function getExchangeRateController(req, res) {
+  try {
+    const { rate } = await getUsdToLkrRate();
+    return res.status(200).json({ base: "USD", quote: "LKR", rate, indicative: true });
+  } catch (err) {
+    return sendError(res, err);
+  }
+}
 
 async function initiateOnepayPaymentController(req, res) {
   try {
@@ -52,6 +67,8 @@ async function initiateOnepayPaymentController(req, res) {
       throw new HttpError(400, "registrationMongoId is required.");
     }
 
+    // Currency is derived from the registration inside the service. Any
+    // currency sent by the client is ignored.
     const result = await initiateOnepayPayment(registrationMongoId);
     return res.status(200).json(result);
   } catch (err) {
@@ -69,10 +86,6 @@ async function initiateOnepayPaymentController(req, res) {
  *   "status_message": "SUCCESS",
  *   "additional_data": ""
  * }
- *
- * Recommended approach (what your service already does):
- * - store callback payload for audit
- * - verify/sync by calling OnePay "Get Transaction" status endpoint (server-to-server)
  *
  * IMPORTANT: Respond quickly with 200 to avoid gateway retries/timeouts.
  */
@@ -112,6 +125,10 @@ async function getPaymentStatusForRegistrationController(req, res) {
       redirectUrl: payment.redirectUrl,
       paidAt: payment.paidAt,
       lastError: payment.lastError,
+
+      // What was actually charged, so the status page shows the right currency.
+      currency: payment.currency,
+      amount: payment.amount,
     };
 
     // ✅ Only attach registration details when PAID
@@ -150,4 +167,5 @@ module.exports = {
   initiateOnepayPaymentController,
   onepayCallbackController,
   getPaymentStatusForRegistrationController,
+  getExchangeRateController,
 };

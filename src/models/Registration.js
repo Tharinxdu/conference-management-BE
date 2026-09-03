@@ -12,7 +12,7 @@ const RegistrationSchema = new mongoose.Schema(
     institution: String,
     country: String,
 
-    // Pricing info
+    // Pricing info (feeAmount is always USD — the denomination of FEE_RULES)
     incomeGroup: String,
     participantCategory: String,
     conferenceType: String,
@@ -37,8 +37,10 @@ const RegistrationSchema = new mongoose.Schema(
     paymentReference: { type: String, default: null },
     paymentProvider: { type: String, default: null },
 
-    qr: { type: mongoose.Schema.Types.ObjectId, ref: "RegistrationQr", default: null },
+    // Currency actually charged. LKR only for incomeGroup === "LOCAL".
+    paymentCurrency: { type: String, enum: ["USD", "LKR"], default: null },
 
+    qr: { type: mongoose.Schema.Types.ObjectId, ref: "RegistrationQr", default: null },
   },
   { timestamps: true }
 );

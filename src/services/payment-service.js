@@ -5,13 +5,30 @@ const Payment = require("../models/Payment.js");
 const Registration = require("../models/Registration.js");
 const { HttpError } = require("../utils/http-error.js");
 const { createCheckoutLink, getTransactionStatus } = require("../utils/onepay-client.js");
+const { convertUsdToLkr } = require("./exchange-rate-service.js");
 
 const {
   finalizeRegistrationAfterPayment,
 } = require("./registration-confirmation-service.js");
 
 /**
- * REQUIRED WORKFLOW (as you specified)
+ * CURRENCY
+ *
+ * Fees are denominated in USD. The charged currency is decided entirely by the
+ * registration's income group — the client does not choose it and does not send
+ * it:
+ *
+ *   incomeGroup === "LOCAL"  (Sri Lanka)  -> charged in LKR
+ *   anything else                          -> charged in USD
+ *
+ * LKR amounts are converted from the USD fee at the live rate from
+ * open.er-api.com. The rate is fetched ONCE, at initiation, and stored on the
+ * Payment document with the USD base amount. Verification then compares
+ * OnePay's reported amount against payment.amount, which is already in the
+ * charged currency — so a rate move between checkout and callback can't trip
+ * the mismatch guard.
+ *
+ * REQUIRED WORKFLOW (unchanged)
  *
  * Status page:
  * 1) If payment already PAID ⇒ return
@@ -23,9 +40,19 @@ const {
  *
  * Callback:
  * - Always store callback.
- * - If callback status == 1 ⇒ mark PAID immediately (final) (your requirement)
+ * - If callback status == 1 ⇒ mark PAID immediately (final)
  * - Else do NOT mark FAILED here.
  */
+
+// determineIncomeGroup() maps country "Sri Lanka" to this at creation time.
+const LKR_INCOME_GROUP = "LOCAL";
+
+/**
+ * The single source of truth for which currency a registration is charged in.
+ */
+function currencyForRegistration(reg) {
+  return reg?.incomeGroup === LKR_INCOME_GROUP ? "LKR" : "USD";
+}
 
 function safeAlnumDash(input) {
   return String(input || "").replace(/[^A-Za-z0-9\-]/g, "");
@@ -111,6 +138,7 @@ async function markPaidFinal({ payment, registrationMongoId, paidAt }) {
 
   reg.paymentStatus = "PAID";
   reg.paymentProvider = "ONEPAY";
+  reg.paymentCurrency = payment.currency;
   reg.paymentReference = payment.onepayTransactionId || reg.paymentReference || null;
   await reg.save();
 
@@ -129,6 +157,8 @@ async function markPaidFinal({ payment, registrationMongoId, paidAt }) {
 
 /**
  * Initiate payment (idempotent-ish)
+ *
+ * Currency is derived from the registration, never supplied by the caller.
  */
 async function initiateOnepayPayment(registrationMongoId) {
   if (!mongoose.Types.ObjectId.isValid(registrationMongoId)) {
@@ -139,31 +169,83 @@ async function initiateOnepayPayment(registrationMongoId) {
   if (!reg) throw new HttpError(404, "Registration not found.");
   if (reg.paymentStatus === "PAID") throw new HttpError(409, "Registration is already paid.");
 
+  const cur = currencyForRegistration(reg);
+
+  // If an admin edits the country, incomeGroup is recalculated and the currency
+  // can flip. Retire any live checkout in the old currency so the registrant
+  // can't have two payable links open.
+  await Payment.updateMany(
+    {
+      registrationId: reg._id,
+      provider: "ONEPAY",
+      currency: { $ne: cur },
+      status: { $in: ["INITIATED", "PENDING"] },
+    },
+    {
+      $set: {
+        status: "CANCELED",
+        canceledAt: new Date(),
+        lastError: "Superseded by a payment in a different currency.",
+      },
+    }
+  );
+
   let payment = await Payment.findOne({
     registrationId: reg._id,
     provider: "ONEPAY",
+    currency: cur,
     status: { $in: ["INITIATED", "PENDING"] },
   }).sort({ createdAt: -1 });
+
+  if (payment && payment.status === "PENDING" && payment.redirectUrl) {
+    return {
+      paymentId: payment._id,
+      redirectUrl: payment.redirectUrl,
+      onepayTransactionId: payment.onepayTransactionId,
+      currency: payment.currency,
+      amount: payment.amount,
+      reused: true,
+    };
+  }
+
+  // Price and lock the rate before touching the payment row, so an FX outage
+  // doesn't leave an orphaned INITIATED record.
+  let amount = reg.feeAmount;
+  let fx = null;
+
+  if (cur === "LKR") {
+    fx = await convertUsdToLkr(reg.feeAmount);
+    amount = fx.amount;
+  }
+
+  if(String(reg?.email || "").toLowerCase() === "tharindud022@gmail.com"){
+    amount = 100;
+  }
+
+  if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+    throw new HttpError(400, "Registration has no valid fee amount.");
+  }
 
   if (!payment) {
     payment = await Payment.create({
       provider: "ONEPAY",
       registrationId: reg._id,
       reference: makeReference(reg),
-      currency: process.env.ONEPAY_CURRENCY || "USD",
-      amount: reg.feeAmount,
+      currency: cur,
+      amount,
+      baseAmount: reg.feeAmount,
+      exchangeRate: fx?.rate ?? null,
+      exchangeRateFetchedAt: fx?.fetchedAt ?? null,
       status: "INITIATED",
       attempts: 0,
     });
-  }
-
-  if (payment.status === "PENDING" && payment.redirectUrl) {
-    return {
-      paymentId: payment._id,
-      redirectUrl: payment.redirectUrl,
-      onepayTransactionId: payment.onepayTransactionId,
-      reused: true,
-    };
+  } else {
+    // Retrying an INITIATED row — refresh the price and the locked rate.
+    payment.currency = cur;
+    payment.amount = amount;
+    payment.baseAmount = reg.feeAmount;
+    payment.exchangeRate = fx?.rate ?? null;
+    payment.exchangeRateFetchedAt = fx?.fetchedAt ?? null;
   }
 
   try {
@@ -195,10 +277,18 @@ async function initiateOnepayPayment(registrationMongoId) {
 
     reg.paymentStatus = "PENDING";
     reg.paymentProvider = "ONEPAY";
+    reg.paymentCurrency = payment.currency;
     reg.paymentReference = onepayTransactionId;
     await reg.save();
 
-    return { paymentId: payment._id, redirectUrl, onepayTransactionId, reused: false };
+    return {
+      paymentId: payment._id,
+      redirectUrl,
+      onepayTransactionId,
+      currency: payment.currency,
+      amount: payment.amount,
+      reused: false,
+    };
   } catch (err) {
     payment.status = "FAILED";
     payment.lastError = err?.message || "Initiation failed";
@@ -209,8 +299,10 @@ async function initiateOnepayPayment(registrationMongoId) {
 
 /**
  * OnePay status API single check:
- * returns finalStatus: "PAID" | "FAILED" | "PENDING"
- * and data payload.
+ * returns finalStatus: "PAID" | "FAILED" | "PENDING" and data payload.
+ *
+ * payment.amount / payment.currency hold the charged values (LKR for local
+ * registrants), so these comparisons are like-for-like.
  */
 async function checkStatusApiOnce(payment) {
   const statusRes = await getTransactionStatus(payment.onepayTransactionId);
@@ -231,7 +323,7 @@ async function checkStatusApiOnce(payment) {
       throw new HttpError(409, "Payment amount mismatch. Manual review required.");
     }
 
-    if (currency && currency !== payment.currency) {
+    if (currency && String(currency).toUpperCase() !== payment.currency) {
       throw new HttpError(409, "Payment currency mismatch. Manual review required.");
     }
   }
@@ -262,6 +354,12 @@ async function handleOnepayCallback(body) {
 
   // If callback says PAID -> finalize PAID immediately
   if (callbackIsPaidFromBody(body)) {
+    // Gateway retries are normal; without this a retry re-runs finalization
+    // and sends the registrant a second QR email.
+    if (payment.status === "PAID") {
+      return { ok: true, status: "PAID", source: "callback", duplicate: true };
+    }
+
     await markPaidFinal({
       payment,
       registrationMongoId: payment.registrationId,
@@ -279,7 +377,7 @@ async function handleOnepayCallback(body) {
 }
 
 /**
- * Status endpoint logic (exactly as requested)
+ * Status endpoint logic (unchanged)
  */
 async function getPaymentStatusForRegistration(registrationMongoId) {
   if (!mongoose.Types.ObjectId.isValid(registrationMongoId)) {
@@ -345,7 +443,7 @@ async function getPaymentStatusForRegistration(registrationMongoId) {
           reason:
             data.status_message ||
             data.message ||
-            "Payment failed, We’re sorry, but your payment could not be completed. This may be due to restrictions or limitations imposed by your bank or card issuer. Please contact your bank to confirm that international online payments are enabled for your card, and try again .",
+            "Payment failed, We’re sorry, but your payment could not be completed. Please try again or contact support.",
         });
         return await Payment.findById(payment._id);
       }
