@@ -52,4 +52,7 @@ docker-compose.override.yml
 *.tgz
 
 # ===== Scripts =====
-src/scripts/
+src/scripts/data/
+src/scripts/output/
+src/scripts/send-test-qr-email.js
+src/scripts/GROUP-IMPORT-README.md

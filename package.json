@@ -1,11 +1,15 @@
 {
   "name": "apsc-conference-management",
   "version": "1.0.0",
-  "description": "APSC 2026 – Conference Management Portal",
+  "description": "APSC 2026 \u2013 Conference Management Portal",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "qr:check": "node src/scripts/group-import-send-qr.js --offline",
+    "qr:dry": "node src/scripts/group-import-send-qr.js",
+    "qr:send": "node src/scripts/group-import-send-qr.js --confirm",
+    "qr:cleanup": "node src/scripts/delete-test-registrations.js"
   },
   "keywords": [],
   "author": "",
