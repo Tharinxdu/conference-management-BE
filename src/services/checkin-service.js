@@ -1,16 +1,19 @@
-const mongoose = require("mongoose");
 const RegistrationQr = require("../models/RegistrationQr");
 const Registration = require("../models/Registration");
 const { HttpError } = require("../utils/http-error");
 
 const { sha256, parseQrText, verifyQrJwtToken } = require("../utils/qr/qr-utils");
 
-function ensureAdmin(adminUser) {
-  const adminId = adminUser?._id || adminUser?.id;
-  if (!adminId) throw new HttpError(401, "Unauthorized");
-  return adminId;
+/**
+ * Any authenticated staff or admin user may operate the desk. Route-level
+ * middleware (requireStaff) enforces the role; this only guards against a
+ * missing/!malformed user object reaching the DB write.
+ */
+function ensureActor(actorUser) {
+  const actorId = actorUser?._id || actorUser?.id;
+  if (!actorId) throw new HttpError(401, "Unauthorized");
+  return actorId;
 }
-
 
 function mapAttendee(reg) {
   return {
@@ -19,6 +22,18 @@ function mapAttendee(reg) {
     lastName: reg.lastName,
     conferenceType: reg.conferenceType,
     email: reg.email,
+    institution: reg.institution,
+    country: reg.country,
+  };
+}
+
+function mapQr(qrDoc) {
+  return {
+    status: qrDoc.status,
+    checkInStatus: qrDoc.checkInStatus,
+    checkedInAt: qrDoc.checkedInAt || null,
+    checkedInBy: qrDoc.checkedInBy || null,
+    checkedInByEmail: qrDoc.checkedInBy?.email || null,
   };
 }
 
@@ -38,7 +53,7 @@ async function resolveQrAndRegistration(qrText) {
 
   const tokenHash = sha256(token);
 
-  const qrDoc = await RegistrationQr.findOne({ tokenHash });
+  const qrDoc = await RegistrationQr.findOne({ tokenHash }).populate("checkedInBy", "email");
   if (!qrDoc) throw new HttpError(404, "QR not found");
 
   // lifecycle checks
@@ -68,23 +83,19 @@ async function resolveQrAndRegistration(qrText) {
 
 /**
  * PREVIEW ONLY (no DB update):
- * - Admin must be logged in
+ * - Staff/admin must be logged in
  * - Returns attendee + current check-in state
  */
-async function previewCheckIn({ qrText, adminUser }) {
-  ensureAdmin(adminUser);
+async function previewCheckIn({ qrText, actorUser }) {
+  ensureActor(actorUser);
 
   const { qrDoc, reg } = await resolveQrAndRegistration(qrText);
 
   return {
     ok: true,
     attendee: mapAttendee(reg),
-    qr: {
-      status: qrDoc.status,
-      checkInStatus: qrDoc.checkInStatus,
-      checkedInAt: qrDoc.checkedInAt,
-      checkedInBy: qrDoc.checkedInBy,
-    },
+    paymentStatus: reg.paymentStatus,
+    qr: mapQr(qrDoc),
   };
 }
 
@@ -93,10 +104,10 @@ async function previewCheckIn({ qrText, adminUser }) {
  * - Idempotent: if already checked in, return "already checked in" response (no error)
  * - Atomic update prevents double check-in if two devices scan at same time
  */
-async function confirmCheckIn({ qrText, adminUser }) {
-  const adminId = ensureAdmin(adminUser);
+async function confirmCheckIn({ qrText, actorUser }) {
+  const actorId = ensureActor(actorUser);
 
-  const { token, tokenHash, qrDoc, reg } = await resolveQrAndRegistration(qrText);
+  const { tokenHash, qrDoc, reg } = await resolveQrAndRegistration(qrText);
 
   // If already checked in, return idempotent success
   if (qrDoc.checkInStatus === "CHECKED_IN") {
@@ -106,6 +117,7 @@ async function confirmCheckIn({ qrText, adminUser }) {
       alreadyCheckedIn: true,
       attendee: mapAttendee(reg),
       checkedInAt: qrDoc.checkedInAt,
+      checkedInByEmail: qrDoc.checkedInBy?.email || null,
     };
   }
 
@@ -121,7 +133,7 @@ async function confirmCheckIn({ qrText, adminUser }) {
       $set: {
         checkInStatus: "CHECKED_IN",
         checkedInAt: new Date(),
-        checkedInBy: adminUser?._id || adminUser?.id,
+        checkedInBy: actorId,
       },
     },
     { new: true }
@@ -129,13 +141,14 @@ async function confirmCheckIn({ qrText, adminUser }) {
 
   // If this is null, someone else checked in between preview and confirm
   if (!updatedQr) {
-    const fresh = await RegistrationQr.findOne({ tokenHash });
+    const fresh = await RegistrationQr.findOne({ tokenHash }).populate("checkedInBy", "email");
     return {
       ok: true,
       message: "Already checked in",
       alreadyCheckedIn: true,
       attendee: mapAttendee(reg),
       checkedInAt: fresh?.checkedInAt || null,
+      checkedInByEmail: fresh?.checkedInBy?.email || null,
     };
   }
 
@@ -147,60 +160,57 @@ async function confirmCheckIn({ qrText, adminUser }) {
   };
 }
 
-/** PREVIEW BY REGISTRATION ID ONLY (no DB update):
- * - Admin must be logged in
- * - Returns attendee + current check-in state
+/**
+ * Shared lookup for the "QR unreadable" fallback path.
+ * Loads the QR record by registration ID and enforces its lifecycle.
  */
-async function previewByRegistrationId({ registrationId, adminUser }) {
-  ensureAdmin(adminUser);
+async function resolveByRegistrationId(registrationId) {
   if (!registrationId) throw new HttpError(400, "registrationId is required");
 
-  const qrDoc = await RegistrationQr.findOne({ registrationId });
+  const qrDoc = await RegistrationQr.findOne({ registrationId }).populate("checkedInBy", "email");
   if (!qrDoc) throw new HttpError(404, "QR record not found for this registrationId");
 
   if (qrDoc.status !== "ACTIVE") throw new HttpError(409, `QR is ${qrDoc.status}`);
   if (qrDoc.expiresAt && qrDoc.expiresAt <= new Date()) {
     qrDoc.status = "EXPIRED";
-    await qrDoc.save();
+    await qrDoc.save().catch(() => { });
     throw new HttpError(401, "QR expired");
   }
 
   const reg = await Registration.findById(qrDoc.registration);
   if (!reg) throw new HttpError(404, "Registration not found");
 
+  return { qrDoc, reg };
+}
+
+/** PREVIEW BY REGISTRATION ID (no DB update). */
+async function previewByRegistrationId({ registrationId, actorUser }) {
+  ensureActor(actorUser);
+
+  const { qrDoc, reg } = await resolveByRegistrationId(registrationId);
+
   return {
     registrationId: reg.registrationId,
-    attendee: {
-      firstName: reg.firstName,
-      lastName: reg.lastName,
-      conferenceType: reg.conferenceType,
-    },
+    attendee: mapAttendee(reg),
     paymentStatus: reg.paymentStatus,
+    qr: mapQr(qrDoc),
+
+    // Kept flat for backwards compatibility with existing clients.
     checkInStatus: qrDoc.checkInStatus,
     checkedInAt: qrDoc.checkedInAt,
   };
 }
 
-/** CONFIRM CHECK-IN BY REGISTRATION ID:
-  * - Idempotent: if already checked in, return "already checked in" response (no error)
-  * - Atomic update prevents double check-in if two devices scan at same time
-  */
-async function checkInByRegistrationId({ registrationId, adminUser }) {
-  ensureAdmin(adminUser);
-  if (!registrationId) throw new HttpError(400, "registrationId is required");
+/**
+ * CONFIRM CHECK-IN BY REGISTRATION ID:
+ * - Idempotent: if already checked in, return "already checked in" (no error)
+ * - Atomic update prevents double check-in if two devices act at the same time
+ */
+async function checkInByRegistrationId({ registrationId, actorUser }) {
+  const actorId = ensureActor(actorUser);
 
-  const qrDoc = await RegistrationQr.findOne({ registrationId });
-  if (!qrDoc) throw new HttpError(404, "QR record not found for this registrationId");
+  const { qrDoc, reg } = await resolveByRegistrationId(registrationId);
 
-  if (qrDoc.status !== "ACTIVE") throw new HttpError(409, `QR is ${qrDoc.status}`);
-  if (qrDoc.expiresAt && qrDoc.expiresAt <= new Date()) {
-    qrDoc.status = "EXPIRED";
-    await qrDoc.save();
-    throw new HttpError(401, "QR expired");
-  }
-
-  const reg = await Registration.findById(qrDoc.registration);
-  if (!reg) throw new HttpError(404, "Registration not found");
   if (reg.paymentStatus !== "PAID") throw new HttpError(409, "Registration is not PAID");
 
   if (qrDoc.checkInStatus === "CHECKED_IN") {
@@ -208,28 +218,51 @@ async function checkInByRegistrationId({ registrationId, adminUser }) {
       ok: true,
       message: "Already checked in",
       alreadyCheckedIn: true,
+      registrationId: reg.registrationId,
       attendee: mapAttendee(reg),
       checkedInAt: qrDoc.checkedInAt,
+      checkedInByEmail: qrDoc.checkedInBy?.email || null,
     };
   }
 
-  qrDoc.checkInStatus = "CHECKED_IN";
-  qrDoc.checkedInAt = new Date();
-  qrDoc.checkedInBy = adminUser._id || adminUser.id;
-  await qrDoc.save();
+  const updatedQr = await RegistrationQr.findOneAndUpdate(
+    {
+      _id: qrDoc._id,
+      status: "ACTIVE",
+      checkInStatus: "NOT_CHECKED_IN",
+    },
+    {
+      $set: {
+        checkInStatus: "CHECKED_IN",
+        checkedInAt: new Date(),
+        checkedInBy: actorId,
+      },
+    },
+    { new: true }
+  );
+
+  // Lost the race against another device between read and write.
+  if (!updatedQr) {
+    const fresh = await RegistrationQr.findById(qrDoc._id).populate("checkedInBy", "email");
+    return {
+      ok: true,
+      message: "Already checked in",
+      alreadyCheckedIn: true,
+      registrationId: reg.registrationId,
+      attendee: mapAttendee(reg),
+      checkedInAt: fresh?.checkedInAt || null,
+      checkedInByEmail: fresh?.checkedInBy?.email || null,
+    };
+  }
 
   return {
+    ok: true,
     message: "Checked in",
     registrationId: reg.registrationId,
-    attendee: {
-      firstName: reg.firstName,
-      lastName: reg.lastName,
-      conferenceType: reg.conferenceType,
-    },
-    checkedInAt: qrDoc.checkedInAt,
+    attendee: mapAttendee(reg),
+    checkedInAt: updatedQr.checkedInAt,
   };
 }
-
 
 module.exports = {
   previewCheckIn,

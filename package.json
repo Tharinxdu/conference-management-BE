@@ -1,7 +1,7 @@
 {
   "name": "apsc-conference-management",
   "version": "1.0.0",
-  "description": "APSC 2026 \u2013 Conference Management Portal",
+  "description": "APSC 2026 – Conference Management Portal",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

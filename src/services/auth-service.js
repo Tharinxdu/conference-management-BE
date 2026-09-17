@@ -186,7 +186,10 @@ async function logout(userId) {
 }
 
 async function getUserSafeById(userId) {
-  const user = await User.findById(userId).select("_id email isAdmin createdAt");
+  // NOTE: isStaff must stay in both the select and the returned object. This is
+  // what becomes req.user, so omitting it makes requireStaff / ensureStaff /
+  // the frontend staffGuard treat every staff-only account as a plain user.
+  const user = await User.findById(userId).select("_id email isAdmin isStaff createdAt");
   if (!user) return null;
 
   return {
@@ -194,6 +197,7 @@ async function getUserSafeById(userId) {
     id: user._id.toString(),
     email: user.email,
     isAdmin: !!user.isAdmin,
+    isStaff: !!user.isStaff,
     createdAt: user.createdAt,
   };
 }

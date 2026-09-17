@@ -5,6 +5,7 @@ const {
   confirmGalaRedeem,
   previewGalaByTicketId,
   confirmGalaByTicketId,
+  redeemNextTicketForOrder,
 } = require("../services/gala-redeem-service");
 
 async function previewGalaQrController(req, res, next) {
@@ -55,9 +56,23 @@ async function confirmByTicketIdController(req, res, next) {
   }
 }
 
+/** POST /api/gala/redeem/order/next  { galaOrderMongoId } */
+async function redeemNextForOrderController(req, res, next) {
+  try {
+    const result = await redeemNextTicketForOrder({
+      galaOrderMongoId: req.body?.galaOrderMongoId,
+      staffUser: req.user,
+    });
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   previewGalaQrController,
   confirmGalaQrController,
   previewByTicketIdController,
   confirmByTicketIdController,
+  redeemNextForOrderController,
 };
