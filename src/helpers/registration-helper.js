@@ -228,10 +228,21 @@ export const COUNTRY_INCOME_GROUPS = {
   "Palau": "UPPER"
 };
 
-export function getFeePeriod() {
+export function getFeePeriod(email) {
   const today = new Date();
   const earlyEnd = new Date("2026-09-30T23:59:59Z");
-  return today <= earlyEnd ? "early" : "late";
+  if (today <= earlyEnd) return "early";
+
+  // Read inside the function so it works even if dotenv loads late
+  const exceptions = (process.env.EARLY_BIRD_EXCEPTION_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (email && exceptions.includes(String(email).trim().toLowerCase())) {
+    return "early";
+  }
+  return "late";
 }
 
 export function determineIncomeGroup(country, rawGroup) {
@@ -259,8 +270,8 @@ export const FEE_RULES = {
   },
 };
 
-export function calculateFee({ conferenceType, participantCategory, incomeGroup }) {
-  const period = getFeePeriod();
+export function calculateFee({ conferenceType, participantCategory, incomeGroup, email }) {
+  const period = getFeePeriod(email);
 
   if (conferenceType === "rehab") {
     return {

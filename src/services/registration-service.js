@@ -48,6 +48,7 @@ async function createRegistration(payload) {
       conferenceType: payload.conferenceType,
       participantCategory: payload.participantCategory,
       incomeGroup,
+      email,
     });
 
     if (!feeData) {
@@ -179,6 +180,7 @@ async function updateRegistrationById(id, updates) {
         conferenceType: nextConferenceType,
         participantCategory: nextParticipantCategory,
         incomeGroup,
+        email: safeUpdates.email ?? current.email,
       });
 
       if (!feeData) {

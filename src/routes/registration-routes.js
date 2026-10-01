@@ -7,6 +7,7 @@ const {
   getRegistrationByRegistrationIdController,
   updateRegistrationController,
   deleteRegistrationController,
+  checkFeePeriodController,
 } = require("../controllers/registration-controller.js"); // ensure filename matches
 
 const { requireAuth } = require("../middlewares/auth-middleware.js"); // ensure filename matches
@@ -22,6 +23,8 @@ router.get("/", requireAuth, requireAdmin, listRegistrationsController);
 
 // ✅ Put this BEFORE "/:id" to avoid conflict
 router.get("/by-code/:registrationId", requireAuth, requireAdmin, getRegistrationByRegistrationIdController);
+
+router.post("/fee-period", checkFeePeriodController);
 
 // Admin-only: view single by Mongo _id
 router.get("/:id", requireAuth, requireAdmin, getRegistrationByIdController);

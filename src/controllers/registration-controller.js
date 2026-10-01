@@ -71,6 +71,13 @@ async function deleteRegistrationController(req, res) {
     }
 }
 
+const { getFeePeriod } = require("../helpers/registration-helper.js");
+
+async function checkFeePeriodController(req, res) {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  return res.json({ period: getFeePeriod(email) });
+}
+
 module.exports = {
   createRegistrationController,
   listRegistrationsController,
@@ -78,4 +85,5 @@ module.exports = {
   getRegistrationByRegistrationIdController,
   updateRegistrationController,
   deleteRegistrationController,
+  checkFeePeriodController,
 };
