@@ -48,7 +48,7 @@ async function resolveQrAndRegistration(qrText) {
   try {
     payload = verifyQrJwtToken(token);
   } catch {
-    throw new HttpError(401, "Invalid or expired QR");
+    throw new HttpError(400, "Invalid or expired QR");
   }
 
   const tokenHash = sha256(token);
@@ -63,7 +63,7 @@ async function resolveQrAndRegistration(qrText) {
     // best-effort update so future scans show EXPIRED
     qrDoc.status = "EXPIRED";
     await qrDoc.save().catch(() => { });
-    throw new HttpError(401, "QR expired");
+    throw new HttpError(410, "QR expired");
   }
 
   const reg = await Registration.findById(qrDoc.registration);
@@ -174,7 +174,7 @@ async function resolveByRegistrationId(registrationId) {
   if (qrDoc.expiresAt && qrDoc.expiresAt <= new Date()) {
     qrDoc.status = "EXPIRED";
     await qrDoc.save().catch(() => { });
-    throw new HttpError(401, "QR expired");
+    throw new HttpError(410, "QR expired");
   }
 
   const reg = await Registration.findById(qrDoc.registration);
